@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitStone</title>
+<style>
+  :root {
+    --bg: #101418;
+    --panel: #171d24;
+    --panel2: #1d242d;
+    --border: #2c3540;
+    --text: #d6dde4;
+    --muted: #8b98a5;
+    --accent: #6ee16e;      /* emerald green */
+    --accent-dim: #3f8f3f;
+    --link: #7fb8ff;
+    --danger: #ff8080;
+    --mono: "Consolas", "Cascadia Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    min-height: 100vh;
+  }
+  a { color: var(--link); text-decoration: none; cursor: pointer; }
+  a:hover { text-decoration: underline; }
+
+  header {
+    background: var(--panel);
+    border-bottom: 3px solid var(--accent-dim);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: bold;
+    color: var(--accent);
+    letter-spacing: 1px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .logo .stone { color: var(--muted); }
+  .logo::before { content: "▣ "; }
+  header .sub { color: var(--muted); font-size: 13px; }
+
+  main { max-width: 1080px; margin: 0 auto; padding: 24px; }
+
+  .crumbs { font-family: var(--mono); font-size: 14px; margin-bottom: 18px; color: var(--muted); }
+  .crumbs a { color: var(--link); }
+
+  /* repo list */
+  .repo-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 14px;
+    transition: border-color .15s;
+  }
+  .repo-card:hover { border-color: var(--accent-dim); }
+  .repo-card h2 { font-size: 18px; margin-bottom: 4px; }
+  .repo-card .desc { color: var(--muted); font-size: 14px; margin-bottom: 8px; }
+  .repo-meta { display: flex; gap: 18px; font-size: 13px; color: var(--muted); font-family: var(--mono); }
+  .repo-meta .commit-msg { color: var(--text); }
+
+  .badge {
+    display: inline-block;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1px 10px;
+    font-size: 12px;
+    font-family: var(--mono);
+    color: var(--muted);
+  }
+
+  /* tabs */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+  .tab {
+    padding: 8px 16px;
+    font-size: 14px;
+    color: var(--muted);
+    cursor: pointer;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+    user-select: none;
+  }
+  .tab.active {
+    color: var(--accent);
+    background: var(--panel);
+    border-color: var(--border);
+    border-bottom: 2px solid var(--accent);
+  }
+
+  select {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-family: var(--mono);
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+
+  /* file tree + lists */
+  .list {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .row:last-child { border-bottom: none; }
+  .row:hover { background: var(--panel2); }
+  .row .icon { width: 18px; text-align: center; color: var(--muted); }
+  .row .icon.dir { color: var(--accent); }
+
+  /* commits */
+  .commit-row { display: flex; align-items: baseline; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .commit-row:last-child { border-bottom: none; }
+  .commit-row:hover { background: var(--panel2); }
+  .hash { font-family: var(--mono); color: var(--accent); font-size: 13px; flex-shrink: 0; }
+  .commit-subject { flex: 1; }
+  .commit-who { color: var(--muted); font-size: 13px; flex-shrink: 0; }
+
+  /* code view */
+  pre.code {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+    tab-size: 4;
+  }
+  pre.code .add { color: var(--accent); }
+  pre.code .del { color: var(--danger); }
+  pre.code .hunk { color: var(--link); }
+
+  .commit-head {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+  }
+  .commit-head h3 { margin-bottom: 6px; }
+  .commit-head .meta { color: var(--muted); font-size: 13px; font-family: var(--mono); }
+
+  .empty { color: var(--muted); padding: 30px; text-align: center; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 30px; font-family: var(--mono); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo" onclick="go('#/')">Git<span class="stone">Stone</span></div>
+  <div class="sub">version control for Minecraft worlds — /gs</div>
+</header>
+<main id="app"><div class="empty">Loading…</div></main>
+<footer>GitStone v0.1 · localhost:3000</footer>
+
+<script>
+const app = document.getElementById("app");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const go = (h) => { location.hash = h; };
+const api = async (url) => {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+  return r.json();
+};
+const ago = (ms) => {
+  if (!ms) return "";
+  const s = (Date.now() - ms) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s/60)} min ago`;
+  if (s < 86400) return `${Math.floor(s/3600)} h ago`;
+  return `${Math.floor(s/86400)} d ago`;
+};
+
+// ---- views ----
+
+async function viewRepoList() {
+  const repos = await api("/api/repos");
+  if (!repos.length) {
+    app.innerHTML = `<div class="empty">No repositories yet.<br>Run <b>/gs init</b> in-game to create one.</div>`;
+    return;
+  }
+  app.innerHTML = repos.map(r => `
+    <div class="repo-card">
+      <h2><a href="#/repo/${esc(r.name)}">▣ ${esc(r.name)}</a></h2>
+      ${r.description ? `<div class="desc">${esc(r.description)}</div>` : ""}
+      <div class="repo-meta">
+        <span class="badge">⌥ ${r.branches.length} branch${r.branches.length === 1 ? "" : "es"}</span>
+        <span class="badge">◈ ${r.commitCount} commits</span>
+        ${r.lastCommit ? `<span class="commit-msg">${esc(r.lastCommit.subject)}</span>
+        <span>${esc(r.lastCommit.author)} · ${ago(r.lastCommit.time)}</span>` : ""}
+      </div>
+    </div>`).join("");
+}
+
+function repoShell(repo, tab, ref, inner) {
+  return `
+    <div class="crumbs"><a href="#/">repositories</a> / <b style="color:var(--text)">${esc(repo)}</b></div>
+    <div class="tabs">
+      <div class="tab ${tab==="files"?"active":""}" onclick="go('#/repo/${esc(repo)}?ref=${esc(ref)}')">⛏ Files</div>
+      <div class="tab ${tab==="commits"?"active":""}" onclick="go('#/repo/${esc(repo)}/commits?ref=${esc(ref)}')">◈ Commits</div>
+    </div>
+    <div id="refbox"></div>
+    ${inner}`;
+}
+
+async function renderRefPicker(repo, ref, page) {
+  const { head, branches } = await api(`/api/repos/${repo}/branches`);
+  const current = ref === "HEAD" ? head : ref;
+  document.getElementById("refbox").innerHTML = `
+    <select onchange="go('#/repo/${esc(repo)}${page==='commits'?'/commits':''}?ref=' + encodeURIComponent(this.value))">
+      ${branches.map(b => `<option ${b===current?"selected":""}>${esc(b)}</option>`).join("")}
+    </select>`;
+}
+
+async function viewTree(repo, ref, dir) {
+  const entries = await api(`/api/repos/${repo}/tree?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(dir)}`);
+  const up = dir ? `<div class="row"><span class="icon dir">↩</span><a href="#/repo/${esc(repo)}?ref=${esc(ref)}&path=${esc(dir.split("/").slice(0,-1).join("/"))}">..</a></div>` : "";
+  const rows = entries.map(e => {
+    const p = dir ? `${dir}/${e.name}` : e.name;
+    return e.type === "tree"
+      ? `<div class="row"><span class="icon dir">▤</span><a href="#/repo/${esc(repo)}?ref=${esc(ref)}&path=${esc(p)}">${esc(e.name)}/</a></div>`
+      : `<div class="row"><span class="icon">▢</span><a href="#/repo/${esc(repo)}/blob?ref=${esc(ref)}&path=${esc(p)}">${esc(e.name)}</a></div>`;
+  }).join("");
+  app.innerHTML = repoShell(repo, "files", ref,
+    `<div class="list">${up}${rows || '<div class="empty">empty tree</div>'}</div>`);
+  renderRefPicker(repo, ref, "files");
+}
+
+async function viewBlob(repo, ref, file) {
+  const { content } = await api(`/api/repos/${repo}/blob?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(file)}`);
+  const parent = file.split("/").slice(0, -1).join("/");
+  app.innerHTML = repoShell(repo, "files", ref, `
+    <div class="crumbs"><a href="#/repo/${esc(repo)}?ref=${esc(ref)}&path=${esc(parent)}">↩ back</a> · <span style="font-family:var(--mono)">${esc(file)}</span></div>
+    <pre class="code">${esc(content)}</pre>`);
+  renderRefPicker(repo, ref, "files");
+}
+
+async function viewCommits(repo, ref) {
+  const commits = await api(`/api/repos/${repo}/commits?ref=${encodeURIComponent(ref)}`);
+  app.innerHTML = repoShell(repo, "commits", ref, `
+    <div class="list">${commits.map(c => `
+      <div class="commit-row">
+        <a class="hash" href="#/repo/${esc(repo)}/commit/${esc(c.hash)}">${esc(c.short)}</a>
+        <span class="commit-subject"><a href="#/repo/${esc(repo)}/commit/${esc(c.hash)}" style="color:var(--text)">${esc(c.subject)}</a></span>
+        <span class="commit-who">${esc(c.author)} · ${ago(c.time)}</span>
+      </div>`).join("") || '<div class="empty">no commits</div>'}
+    </div>`);
+  renderRefPicker(repo, ref, "commits");
+}
+
+async function viewCommit(repo, hash) {
+  const c = await api(`/api/repos/${repo}/commit/${hash}`);
+  const diffHtml = esc(c.diff).split("\n").map(l => {
+    if (l.startsWith("+") && !l.startsWith("+++")) return `<span class="add">${l}</span>`;
+    if (l.startsWith("-") && !l.startsWith("---")) return `<span class="del">${l}</span>`;
+    if (l.startsWith("@@")) return `<span class="hunk">${l}</span>`;
+    return l;
+  }).join("\n");
+  app.innerHTML = `
+    <div class="crumbs"><a href="#/">repositories</a> / <a href="#/repo/${esc(repo)}">${esc(repo)}</a> / <span class="hash">${esc(c.short)}</span></div>
+    <div class="commit-head">
+      <h3>${esc(c.subject)}</h3>
+      <div class="meta">${esc(c.author)} &lt;${esc(c.email)}&gt; · ${new Date(c.time).toLocaleString()} · ${esc(c.hash)}</div>
+    </div>
+    <pre class="code">${diffHtml}</pre>`;
+}
+
+// ---- router ----
+async function route() {
+  const hash = location.hash.slice(1) || "/";
+  const [pathPart, queryPart] = hash.split("?");
+  const q = new URLSearchParams(queryPart || "");
+  const parts = pathPart.split("/").filter(Boolean);
+  try {
+    if (parts.length === 0) return await viewRepoList();
+    if (parts[0] === "repo") {
+      const repo = decodeURIComponent(parts[1]);
+      const ref = q.get("ref") || "HEAD";
+      if (parts[2] === "commits") return await viewCommits(repo, ref);
+      if (parts[2] === "commit") return await viewCommit(repo, parts[3]);
+      if (parts[2] === "blob") return await viewBlob(repo, ref, q.get("path"));
+      return await viewTree(repo, ref, q.get("path") || "");
+    }
+    app.innerHTML = '<div class="empty">not found</div>';
+  } catch (e) {
+    app.innerHTML = `<div class="empty">⚠ ${esc(e.message)}</div>`;
+  }
+}
+window.addEventListener("hashchange", route);
+route();
+</script>
+</body>
+</html>
