@@ -16,6 +16,7 @@ public class GitStonePlugin extends JavaPlugin {
     private static GitStonePlugin instance;
 
     private File reposRoot;
+    private File selectionsFile;
     private SelectionManager selectionManager;
     private RepoManager repoManager;
     private SnapshotService snapshotService;
@@ -33,6 +34,8 @@ public class GitStonePlugin extends JavaPlugin {
         }
 
         selectionManager = new SelectionManager();
+        selectionsFile = new File(getDataFolder(), "selections.yml");
+        selectionManager.load(selectionsFile, getLogger());
         repoManager = new RepoManager(reposRoot);
         snapshotService = new SnapshotService(this);
 
@@ -57,6 +60,9 @@ public class GitStonePlugin extends JavaPlugin {
         if (outlineTask != null) {
             outlineTask.cancel();
             outlineTask = null;
+        }
+        if (selectionManager != null && selectionsFile != null) {
+            selectionManager.save(selectionsFile, getLogger());
         }
         getLogger().info("GitStone has been disabled!");
     }
