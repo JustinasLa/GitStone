@@ -95,18 +95,25 @@ public class RepoManager {
 
     /**
      * Stages whatever SnapshotService wrote into the repo directory and
-     * creates a commit authored by the given player.
+     * creates a commit authored by the given player. Returns {@code false}
+     * (without creating a commit) if the working tree has nothing new to
+     * commit relative to HEAD.
      */
-    public void commit(String repo, Player author, String message) throws IOException {
+    public boolean commit(String repo, Player author, String message) throws IOException {
         File dir = repoDir(repo);
         try (Git git = Git.open(dir)) {
             git.add().addFilepattern(".").call();
+            org.eclipse.jgit.api.Status status = git.status().call();
+            if (status.isClean()) {
+                return false;
+            }
             PersonIdent ident = new PersonIdent(author.getName(), author.getUniqueId() + "@gitstone.local");
             git.commit()
                 .setMessage(message)
                 .setAuthor(ident)
                 .setCommitter(ident)
                 .call();
+            return true;
         } catch (GitAPIException e) {
             throw new IOException("Failed to commit: " + e.getMessage(), e);
         }
@@ -198,7 +205,7 @@ public class RepoManager {
     public void checkout(String repo, String ref) throws IOException {
         File dir = repoDir(repo);
         try (Git git = Git.open(dir)) {
-            git.checkout().setName(ref).call();
+            git.checkout().setName(ref).setForced(true).call();
         } catch (GitAPIException e) {
             throw new IOException("Failed to checkout '" + ref + "': " + e.getMessage(), e);
         }

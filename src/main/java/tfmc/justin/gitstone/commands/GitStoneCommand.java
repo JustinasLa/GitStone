@@ -33,6 +33,7 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
     );
 
     private final GitStonePlugin plugin;
+    private final java.util.Set<java.util.UUID> busy = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public GitStoneCommand(GitStonePlugin plugin) {
         this.plugin = plugin;
@@ -218,10 +219,17 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
         }
         File repoDir = plugin.getRepoManager().repoDir(repo);
 
+        java.util.UUID uuid = player.getUniqueId();
+        if (!busy.add(uuid)) {
+            Utils.msg(player, "&c[GitStone] A GitStone operation is already running, wait for it to finish.");
+            return;
+        }
+
         // Block reading happens on the main thread (we're already on it here).
         try {
             plugin.getSnapshotService().capture(sel, world, repoDir, player);
         } catch (Exception e) {
+            busy.remove(uuid);
             Utils.msg(player, "&cFailed to capture selection: " + e.getMessage());
             return;
         }
@@ -229,10 +237,20 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
         Utils.msg(player, "&7[GitStone] &fCapturing complete, committing...");
         Utils.runAsync(plugin, () -> {
             try {
-                plugin.getRepoManager().commit(repo, player, message);
-                Utils.runSync(plugin, () -> Utils.msg(player, "&a[GitStone] &fCommitted to &e" + repo));
+                boolean committed = plugin.getRepoManager().commit(repo, player, message);
+                Utils.runSync(plugin, () -> {
+                    busy.remove(uuid);
+                    if (committed) {
+                        Utils.msg(player, "&a[GitStone] &fCommitted to &e" + repo);
+                    } else {
+                        Utils.msg(player, "&7[GitStone] No changes to commit.");
+                    }
+                });
             } catch (Exception e) {
-                Utils.runSync(plugin, () -> Utils.msg(player, "&cFailed to commit: " + e.getMessage()));
+                Utils.runSync(plugin, () -> {
+                    busy.remove(uuid);
+                    Utils.msg(player, "&cFailed to commit: " + e.getMessage());
+                });
             }
         });
     }
@@ -336,6 +354,12 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
         World world = player.getWorld();
         int blocksPerTick = plugin.getConfig().getInt("restore.blocks-per-tick", 2000);
 
+        java.util.UUID uuid = player.getUniqueId();
+        if (!busy.add(uuid)) {
+            Utils.msg(player, "&c[GitStone] A GitStone operation is already running, wait for it to finish.");
+            return;
+        }
+
         Utils.msg(player, "&7[GitStone] &fChecking out &e" + ref + "&f...");
         Utils.runAsync(plugin, () -> {
             try {
@@ -343,14 +367,20 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
                 Utils.runSync(plugin, () -> {
                     Utils.msg(player, "&7[GitStone] &fRebuilding blocks...");
                     try {
-                        plugin.getSnapshotService().restore(repoDir, world, blocksPerTick, () ->
-                            Utils.msg(player, "&a[GitStone] &fRebuilt &e" + repo + " &fat &e" + ref));
+                        plugin.getSnapshotService().restore(repoDir, world, blocksPerTick, () -> {
+                            busy.remove(uuid);
+                            Utils.msg(player, "&a[GitStone] &fRebuilt &e" + repo + " &fat &e" + ref);
+                        });
                     } catch (Exception e) {
+                        busy.remove(uuid);
                         Utils.msg(player, "&cFailed to restore: " + e.getMessage());
                     }
                 });
             } catch (Exception e) {
-                Utils.runSync(plugin, () -> Utils.msg(player, "&cFailed to checkout: " + e.getMessage()));
+                Utils.runSync(plugin, () -> {
+                    busy.remove(uuid);
+                    Utils.msg(player, "&cFailed to checkout: " + e.getMessage());
+                });
             }
         });
     }
