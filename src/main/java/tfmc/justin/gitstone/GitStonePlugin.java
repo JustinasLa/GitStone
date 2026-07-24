@@ -34,7 +34,7 @@ public class GitStonePlugin extends JavaPlugin {
 
         selectionManager = new SelectionManager();
         repoManager = new RepoManager(reposRoot);
-        snapshotService = new SnapshotService();
+        snapshotService = new SnapshotService(this);
 
         GitStoneCommand command = new GitStoneCommand(this);
         var pluginCommand = getCommand("gs");

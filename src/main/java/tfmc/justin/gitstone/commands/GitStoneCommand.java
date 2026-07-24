@@ -1,5 +1,7 @@
 package tfmc.justin.gitstone.commands;
 
+import org.bukkit.Bukkit;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -13,6 +15,7 @@ import tfmc.justin.gitstone.managers.RepoManager;
 import tfmc.justin.gitstone.managers.SelectionManager;
 import tfmc.justin.gitstone.utils.Utils;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -155,8 +158,6 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
             repoManager.init(name, description, player);
             plugin.getSelectionManager().setActiveRepo(player, name);
             Utils.msg(player, "&a[GitStone] &fCreated repo &e" + name + "&f and set it active.");
-        } catch (UnsupportedOperationException e) {
-            Utils.msg(player, "&7[GitStone] init is not implemented yet (Phase 2).");
         } catch (Exception e) {
             Utils.msg(player, "&cFailed to init repo: " + e.getMessage());
         }
@@ -208,14 +209,32 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
             return;
         }
         String message = String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length));
-        try {
-            plugin.getRepoManager().commit(repo, player, message);
-            Utils.msg(player, "&a[GitStone] &fCommitted to &e" + repo);
-        } catch (UnsupportedOperationException e) {
-            Utils.msg(player, "&7[GitStone] commit is not implemented yet (Phase 2).");
-        } catch (Exception e) {
-            Utils.msg(player, "&cFailed to commit: " + e.getMessage());
+
+        SelectionManager.Selection sel = plugin.getSelectionManager().getSelection(player);
+        World world = Bukkit.getWorld(sel.getWorld());
+        if (world == null) {
+            Utils.msg(player, "&cSelection's world is not loaded: " + sel.getWorld());
+            return;
         }
+        File repoDir = plugin.getRepoManager().repoDir(repo);
+
+        // Block reading happens on the main thread (we're already on it here).
+        try {
+            plugin.getSnapshotService().capture(sel, world, repoDir, player);
+        } catch (Exception e) {
+            Utils.msg(player, "&cFailed to capture selection: " + e.getMessage());
+            return;
+        }
+
+        Utils.msg(player, "&7[GitStone] &fCapturing complete, committing...");
+        Utils.runAsync(plugin, () -> {
+            try {
+                plugin.getRepoManager().commit(repo, player, message);
+                Utils.runSync(plugin, () -> Utils.msg(player, "&a[GitStone] &fCommitted to &e" + repo));
+            } catch (Exception e) {
+                Utils.runSync(plugin, () -> Utils.msg(player, "&cFailed to commit: " + e.getMessage()));
+            }
+        });
     }
 
     private void handleStatus(CommandSender sender) {
@@ -232,8 +251,6 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
         try {
             String branch = plugin.getRepoManager().currentBranch(repo);
             Utils.msg(player, "&fBranch: &e" + branch);
-        } catch (UnsupportedOperationException e) {
-            Utils.msg(player, "&7(branch info not available yet - Phase 2)");
         } catch (Exception e) {
             Utils.msg(player, "&cFailed to read status: " + e.getMessage());
         }
@@ -267,8 +284,6 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
             for (RepoManager.CommitInfo c : log) {
                 Utils.msg(sender, "&e" + c.shortHash() + " &f" + c.subject() + " &7(" + c.author() + ")");
             }
-        } catch (UnsupportedOperationException e) {
-            Utils.msg(sender, "&7[GitStone] log is not implemented yet (Phase 2).");
         } catch (Exception e) {
             Utils.msg(sender, "&cFailed to read log: " + e.getMessage());
         }
@@ -292,8 +307,6 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
                 List<String> branches = plugin.getRepoManager().branches(repo);
                 Utils.msg(player, "&a[GitStone] &fBranches: &e" + String.join(", ", branches));
             }
-        } catch (UnsupportedOperationException e) {
-            Utils.msg(player, "&7[GitStone] branch is not implemented yet (Phase 2).");
         } catch (Exception e) {
             Utils.msg(player, "&cFailed: " + e.getMessage());
         }
@@ -319,14 +332,27 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
             Utils.msg(player, "&cThis will overwrite live blocks. Re-run as: /gs checkout " + ref + " confirm");
             return;
         }
-        try {
-            plugin.getRepoManager().checkout(repo, ref);
-            Utils.msg(player, "&a[GitStone] &fChecked out &e" + ref);
-        } catch (UnsupportedOperationException e) {
-            Utils.msg(player, "&7[GitStone] checkout is not implemented yet (Phase 2).");
-        } catch (Exception e) {
-            Utils.msg(player, "&cFailed to checkout: " + e.getMessage());
-        }
+        File repoDir = plugin.getRepoManager().repoDir(repo);
+        World world = player.getWorld();
+        int blocksPerTick = plugin.getConfig().getInt("restore.blocks-per-tick", 2000);
+
+        Utils.msg(player, "&7[GitStone] &fChecking out &e" + ref + "&f...");
+        Utils.runAsync(plugin, () -> {
+            try {
+                plugin.getRepoManager().checkout(repo, ref);
+                Utils.runSync(plugin, () -> {
+                    Utils.msg(player, "&7[GitStone] &fRebuilding blocks...");
+                    try {
+                        plugin.getSnapshotService().restore(repoDir, world, blocksPerTick, () ->
+                            Utils.msg(player, "&a[GitStone] &fRebuilt &e" + repo + " &fat &e" + ref));
+                    } catch (Exception e) {
+                        Utils.msg(player, "&cFailed to restore: " + e.getMessage());
+                    }
+                });
+            } catch (Exception e) {
+                Utils.runSync(plugin, () -> Utils.msg(player, "&cFailed to checkout: " + e.getMessage()));
+            }
+        });
     }
 
     private void sendHelp(CommandSender sender) {
@@ -384,7 +410,7 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
 
         if (args.length == 2) {
             String sub = args[0].toLowerCase();
-            if (sub.equals("use") || sub.equals("log") || sub.equals("checkout")) {
+            if (sub.equals("use") || sub.equals("log")) {
                 for (String repo : plugin.getRepoManager().listRepos()) {
                     if (repo.toLowerCase().startsWith(args[1].toLowerCase())) {
                         results.add(repo);
@@ -392,20 +418,26 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
                 }
                 return results;
             }
+            if (sub.equals("checkout") && sender instanceof Player player) {
+                String repo = plugin.getSelectionManager().getActiveRepo(player);
+                if (repo != null) {
+                    try {
+                        for (String branch : plugin.getRepoManager().branches(repo)) {
+                            if (branch.toLowerCase().startsWith(args[1].toLowerCase())) {
+                                results.add(branch);
+                            }
+                        }
+                    } catch (Exception ignored) {
+                        // IO failure - no suggestions
+                    }
+                }
+                return results;
+            }
         }
 
-        if (args.length == 3 && args[0].equalsIgnoreCase("checkout") && sender instanceof Player player) {
-            String repo = plugin.getSelectionManager().getActiveRepo(player);
-            if (repo != null) {
-                try {
-                    for (String branch : plugin.getRepoManager().branches(repo)) {
-                        if (branch.toLowerCase().startsWith(args[2].toLowerCase())) {
-                            results.add(branch);
-                        }
-                    }
-                } catch (Exception ignored) {
-                    // Phase 2 stub or IO failure - no suggestions
-                }
+        if (args.length == 3 && args[0].equalsIgnoreCase("checkout")) {
+            if ("confirm".startsWith(args[2].toLowerCase())) {
+                results.add("confirm");
             }
             return results;
         }
