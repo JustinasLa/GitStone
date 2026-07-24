@@ -1,0 +1,29 @@
+# GitStone configuration
+
+# Where repos are stored on disk. Leave empty to default to
+# <plugin-data-folder>/repos. Point this at the shared project's
+# GitStone/repos directory (e.g. an absolute path like
+# "C:/Users/HP/Desktop/Java/Minecraft/GitStone/repos") to make repos
+# created in-game show up immediately in the web viewer (web/server.js).
+repos-path: ""
+
+# The item used as the selection wand (see /gs wand).
+wand-material: BLAZE_ROD
+wand-name: "&aGitStone Wand"
+
+# Live selection outline (drawn only to the player who owns the selection).
+outline:
+  # r,g,b (0-255) particle color for Particle.DUST
+  particle-color: "0,255,120"
+  # how often (in ticks) the outline is redrawn
+  refresh-ticks: 10
+  # how many particle points are sampled along each of the 12 cuboid edges
+  points-per-edge: 12
+
+limits:
+  # maximum number of blocks a selection may contain for commit/restore
+  max-region-volume: 500000
+
+restore:
+  # how many blocks are placed per server tick when rebuilding a snapshot
+  blocks-per-tick: 2000
