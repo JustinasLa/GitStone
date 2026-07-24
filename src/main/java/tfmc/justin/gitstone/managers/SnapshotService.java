@@ -121,7 +121,7 @@ public class SnapshotService {
                         palette.add(data);
                     }
                     indices.add(idx);
-                    if (block.getType() != Material.AIR) {
+                    if (!block.getType().isAir()) {
                         nonAir++;
                     }
                 }
@@ -158,6 +158,7 @@ public class SnapshotService {
 
         int[] origin;
         int dx, dy, dz;
+        String worldName;
         List<String> palette = new ArrayList<>();
         List<Integer> indices = new ArrayList<>();
 
@@ -167,6 +168,10 @@ public class SnapshotService {
                 throw new IOException("Malformed build.gsbuild: bad header");
             }
             String worldLine = reader.readLine(); // world: <name>
+            if (worldLine == null || !worldLine.startsWith("world:")) {
+                throw new IOException("Malformed build.gsbuild: missing world");
+            }
+            worldName = worldLine.substring("world:".length()).trim();
             String originLine = reader.readLine();
             if (originLine == null || !originLine.startsWith("origin:")) {
                 throw new IOException("Malformed build.gsbuild: missing origin");
@@ -229,6 +234,17 @@ public class SnapshotService {
             }
         }
 
+        long volume = (long) dx * dy * dz;
+        long maxVolume = plugin.getConfig().getLong("limits.max-region-volume", 500000);
+        if (volume > maxVolume) {
+            throw new IOException("Snapshot volume (" + volume + ") exceeds limits.max-region-volume (" + maxVolume + ")");
+        }
+
+        World target = Bukkit.getWorld(worldName);
+        if (target == null) {
+            throw new IOException("World '" + worldName + "' is not loaded");
+        }
+
         // Pre-resolve BlockData per palette entry once.
         BlockData[] resolved = new BlockData[palette.size()];
         for (int i = 0; i < palette.size(); i++) {
@@ -267,7 +283,7 @@ public class SnapshotService {
                     int worldY = forigin[1] + y;
                     int worldZ = forigin[2] + z;
                     BlockData data = fresolved[findices.get(linear)];
-                    world.getBlockAt(worldX, worldY, worldZ).setBlockData(data, false);
+                    target.getBlockAt(worldX, worldY, worldZ).setBlockData(data, false);
                     cursor[0]++;
                     placedThisTick++;
                 }
