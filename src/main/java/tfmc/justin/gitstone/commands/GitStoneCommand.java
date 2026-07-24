@@ -29,7 +29,7 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
 
     private static final List<String> SUBCOMMANDS = List.of(
         "wand", "init", "use", "list", "pos1", "pos2", "sel",
-        "commit", "status", "log", "branch", "checkout", "help"
+        "commit", "status", "log", "branch", "checkout", "diff", "help"
     );
 
     private final GitStonePlugin plugin;
@@ -65,6 +65,7 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
             case "log" -> handleLog(sender, args);
             case "branch" -> handleBranch(sender, args);
             case "checkout" -> handleCheckout(sender, args);
+            case "diff" -> handleDiff(sender, args);
             case "help" -> sendHelp(sender);
             default -> {
                 Utils.msg(sender, "&cUnknown subcommand: &f" + sub + " &7(try /gs help)");
@@ -364,7 +365,18 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
         Utils.runAsync(plugin, () -> {
             try {
                 plugin.getRepoManager().checkout(repo, ref);
+                boolean onBranch;
+                try {
+                    onBranch = plugin.getRepoManager().isOnBranch(repo);
+                } catch (Exception e) {
+                    onBranch = true; // can't tell - don't warn spuriously
+                }
+                final boolean detached = !onBranch;
                 Utils.runSync(plugin, () -> {
+                    if (detached) {
+                        Utils.msg(player, "&e[GitStone] Detached HEAD at " + ref
+                            + " — commits here won't move a branch. Use /gs branch <name> to keep changes.");
+                    }
                     Utils.msg(player, "&7[GitStone] &fRebuilding blocks...");
                     try {
                         plugin.getSnapshotService().restore(repoDir, world, blocksPerTick, () -> {
@@ -385,6 +397,40 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
         });
     }
 
+    private void handleDiff(CommandSender sender, String[] args) {
+        Player player = requirePlayer(sender);
+        if (player == null) {
+            return;
+        }
+        String repo = plugin.getSelectionManager().getActiveRepo(player);
+        if (repo == null) {
+            Utils.msg(player, "&cNo active repo. Use /gs use <repo> first.");
+            return;
+        }
+        if (!plugin.getSelectionManager().hasBothCorners(player)) {
+            Utils.msg(player, "&cSet both selection corners first (wand, or /gs pos1 /gs pos2).");
+            return;
+        }
+        File repoDir = plugin.getRepoManager().repoDir(repo);
+        File buildFile = new File(repoDir, "build.gsbuild");
+        if (!buildFile.isFile()) {
+            Utils.msg(player, "&cNo committed snapshot to diff against. Commit first with /gs commit.");
+            return;
+        }
+        SelectionManager.Selection sel = plugin.getSelectionManager().getSelection(player);
+        World world = Bukkit.getWorld(sel.getWorld());
+        if (world == null) {
+            Utils.msg(player, "&cSelection's world is not loaded: " + sel.getWorld());
+            return;
+        }
+        try {
+            String summary = plugin.getSnapshotService().diffSummary(sel, world, repoDir);
+            Utils.msg(player, summary);
+        } catch (Exception e) {
+            Utils.msg(player, "&cFailed to diff: " + e.getMessage());
+        }
+    }
+
     private void sendHelp(CommandSender sender) {
         Utils.msg(sender, "&a=== GitStone ===");
         Utils.msg(sender, "&e/gs wand &7- get the selection wand");
@@ -398,6 +444,7 @@ public class GitStoneCommand implements CommandExecutor, TabCompleter {
         Utils.msg(sender, "&e/gs log [n] &7- recent commits");
         Utils.msg(sender, "&e/gs branch [name] &7- list/create branches");
         Utils.msg(sender, "&e/gs checkout <ref> confirm &7- rebuild a snapshot into the world");
+        Utils.msg(sender, "&e/gs diff &7- compare selection against HEAD's snapshot");
     }
 
     // --- helpers -------------------------------------------------------

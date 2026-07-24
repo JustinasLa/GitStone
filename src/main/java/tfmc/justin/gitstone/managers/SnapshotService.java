@@ -144,16 +144,36 @@ public class SnapshotService {
     }
 
     /**
-     * Parses build.gsbuild out of {@code repoDir} and places its blocks back
-     * into {@code world}, batched across ticks ({@code blocksPerTick} blocks
-     * placed per tick) so a large restore doesn't freeze the server.
-     * {@code onDone} is invoked (on the main thread) once every block has
-     * been placed.
+     * Result of parsing a build.gsbuild file: world name, origin/size, the
+     * palette of blockdata strings, and the RLE-expanded per-cell palette
+     * indices in y-outer/z/x-inner order.
      */
-    public void restore(File repoDir, World world, int blocksPerTick, Runnable onDone) throws IOException {
-        File buildFile = new File(repoDir, "build.gsbuild");
+    private static final class ParsedBuild {
+        final String worldName;
+        final int[] origin;
+        final int dx, dy, dz;
+        final List<String> palette;
+        final List<Integer> indices;
+
+        ParsedBuild(String worldName, int[] origin, int dx, int dy, int dz,
+                    List<String> palette, List<Integer> indices) {
+            this.worldName = worldName;
+            this.origin = origin;
+            this.dx = dx;
+            this.dy = dy;
+            this.dz = dz;
+            this.palette = palette;
+            this.indices = indices;
+        }
+    }
+
+    /**
+     * Parses a build.gsbuild file into its header/palette/blocks components.
+     * Shared by {@link #restore} and {@link #diffSummary}.
+     */
+    private ParsedBuild parseBuildFile(File buildFile) throws IOException {
         if (!buildFile.isFile()) {
-            throw new IOException("No build.gsbuild found in " + repoDir.getAbsolutePath());
+            throw new IOException("No build.gsbuild found in " + buildFile.getParentFile().getAbsolutePath());
         }
 
         int[] origin;
@@ -234,6 +254,30 @@ public class SnapshotService {
             }
         }
 
+        int expected = dx * dy * dz;
+        if (indices.size() != expected) {
+            throw new IOException("build.gsbuild block count mismatch: expected " + expected + " got " + indices.size());
+        }
+
+        return new ParsedBuild(worldName, origin, dx, dy, dz, palette, indices);
+    }
+
+    /**
+     * Parses build.gsbuild out of {@code repoDir} and places its blocks back
+     * into {@code world}, batched across ticks ({@code blocksPerTick} blocks
+     * placed per tick) so a large restore doesn't freeze the server.
+     * {@code onDone} is invoked (on the main thread) once every block has
+     * been placed.
+     */
+    public void restore(File repoDir, World world, int blocksPerTick, Runnable onDone) throws IOException {
+        File buildFile = new File(repoDir, "build.gsbuild");
+        ParsedBuild parsed = parseBuildFile(buildFile);
+        int[] origin = parsed.origin;
+        int dx = parsed.dx, dy = parsed.dy, dz = parsed.dz;
+        String worldName = parsed.worldName;
+        List<String> palette = parsed.palette;
+        List<Integer> indices = parsed.indices;
+
         long volume = (long) dx * dy * dz;
         long maxVolume = plugin.getConfig().getLong("limits.max-region-volume", 500000);
         if (volume > maxVolume) {
@@ -254,11 +298,6 @@ public class SnapshotService {
                 plugin.getLogger().warning("Failed to parse palette entry '" + palette.get(i) + "', falling back to AIR: " + e.getMessage());
                 resolved[i] = Bukkit.createBlockData(Material.AIR);
             }
-        }
-
-        int expected = dx * dy * dz;
-        if (indices.size() != expected) {
-            throw new IOException("build.gsbuild block count mismatch: expected " + expected + " got " + indices.size());
         }
 
         final int fdx = dx, fdz = dz;
@@ -295,5 +334,76 @@ public class SnapshotService {
                 }
             }, 0L, 1L);
         });
+    }
+
+    /**
+     * Compares the blocks currently in {@code sel}/{@code world} against the
+     * build.gsbuild committed at HEAD in {@code repoDir}. Read-only, summary
+     * only (no per-block dump). Must be called on the main thread (reads
+     * live blocks).
+     */
+    public String diffSummary(SelectionManager.Selection sel, World world, File repoDir) throws IOException {
+        File buildFile = new File(repoDir, "build.gsbuild");
+        ParsedBuild parsed = parseBuildFile(buildFile);
+
+        long volume = sel.volume();
+        long maxVolume = plugin.getConfig().getLong("limits.max-region-volume", 500000);
+        if (volume > maxVolume) {
+            throw new IOException("Selection volume (" + volume + ") exceeds limits.max-region-volume (" + maxVolume + ")");
+        }
+
+        int[] min = sel.min();
+        int[] max = sel.max();
+        int dx = max[0] - min[0] + 1;
+        int dy = max[1] - min[1] + 1;
+        int dz = max[2] - min[2] + 1;
+
+        if (dx != parsed.dx || dy != parsed.dy || dz != parsed.dz
+            || min[0] != parsed.origin[0] || min[1] != parsed.origin[1] || min[2] != parsed.origin[2]) {
+            return "&fDiff vs HEAD: &edimensions/position changed&f: was "
+                + parsed.dx + "x" + parsed.dy + "x" + parsed.dz + " @" + parsed.origin[0] + "," + parsed.origin[1] + "," + parsed.origin[2]
+                + " -> now " + dx + "x" + dy + "x" + dz + " @" + min[0] + "," + min[1] + "," + min[2];
+        }
+
+        List<String> snapshotPalette = parsed.palette;
+        List<Integer> snapshotIndices = parsed.indices;
+
+        int changed = 0;
+        int added = 0;
+        int removed = 0;
+        int modified = 0;
+
+        int linear = 0;
+        for (int y = min[1]; y <= max[1]; y++) {
+            for (int z = min[2]; z <= max[2]; z++) {
+                for (int x = min[0]; x <= max[0]; x++) {
+                    Block block = world.getBlockAt(x, y, z);
+                    String currentData = block.getBlockData().getAsString();
+                    String snapshotData = snapshotPalette.get(snapshotIndices.get(linear));
+                    boolean currentAir = block.getType().isAir();
+                    boolean snapshotAir = snapshotData.startsWith("minecraft:air")
+                        || snapshotData.startsWith("minecraft:cave_air")
+                        || snapshotData.startsWith("minecraft:void_air");
+
+                    if (!currentData.equals(snapshotData)) {
+                        changed++;
+                        if (snapshotAir && !currentAir) {
+                            added++;
+                        } else if (!snapshotAir && currentAir) {
+                            removed++;
+                        } else {
+                            modified++;
+                        }
+                    }
+                    linear++;
+                }
+            }
+        }
+
+        if (changed == 0) {
+            return "&fDiff vs HEAD: &a(no changes)";
+        }
+        return "&fDiff vs HEAD: &e" + changed + " &fblocks changed &7(&a+" + added + " added&7, &c-" + removed
+            + " removed&7, &e~" + modified + " modified&7)";
     }
 }

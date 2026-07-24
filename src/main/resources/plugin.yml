@@ -7,7 +7,7 @@ api-version: 1.21
 commands:
   gs:
     description: GitStone - GitHub for Minecraft builds
-    usage: /gs <wand|init|use|list|pos1|pos2|sel|commit|status|log|branch|checkout|help>
+    usage: /gs <wand|init|use|list|pos1|pos2|sel|commit|status|log|branch|checkout|diff|help>
     aliases: [gitstone]
     permission: gitstone.use
 

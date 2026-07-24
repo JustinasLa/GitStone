@@ -198,6 +198,22 @@ public class RepoManager {
     }
 
     /**
+     * Whether the repo's HEAD currently points at a branch (as opposed to a
+     * detached commit checkout). {@code getFullBranch()} returns
+     * {@code refs/heads/<name>} when on a branch, or the raw 40-char SHA when
+     * HEAD is detached.
+     */
+    public boolean isOnBranch(String repo) throws IOException {
+        File dir = repoDir(repo);
+        try (Repository repository = new FileRepositoryBuilder()
+            .setGitDir(new File(dir, ".git"))
+            .build()) {
+            String fullBranch = repository.getFullBranch();
+            return fullBranch != null && fullBranch.startsWith("refs/heads/");
+        }
+    }
+
+    /**
      * Checks out a branch/commit ref on disk (JGit-level; does NOT rebuild
      * blocks in the world - that is SnapshotService#restore, called
      * afterwards by the command layer).
